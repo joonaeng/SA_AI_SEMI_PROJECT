@@ -1,3 +1,6 @@
+TRAIN DATA 에 있는 기상 컬럼
+기온, 강수량, 풍속, 풍향, 습도
+
 [사용자]
   ↓ HTML 버튼 클릭
 [Flask 웹 서버 (Python)]
