@@ -20,7 +20,7 @@ def get_map_data():
     try:
         with open('dataset/lec12_seoul_geo_sigugun.json', 'r', encoding='utf-8') as f:
             geo_data = json.load(f)
-        df = pd.read_csv("dataset/gangnamgu_test.csv")
+        df = pd.read_csv("dataset/gangnamgu_final.csv")
         print(df.head())
 
         m = folium.Map(location=[37.562225, 126.978555], tiles="OpenStreetMap", zoom_start=11)
@@ -45,8 +45,8 @@ def get_map_data():
         name_list = []
 
         for i in range(len(df)):
-            lat = df.iloc[i]['lat']
-            lng = df.iloc[i]['lng']
+            lat = df.iloc[i]['위도']
+            lng = df.iloc[i]['경도']
             sname = df.iloc[i]['대지위치']
 
             if pd.notna(lat) and pd.notna(lng):
@@ -71,7 +71,10 @@ def get_map_data():
 # 메인페이지 라우트
 @app.route('/')
 def main_app():
-    map_html_str = get_map_data()
+    cached_map_html = 0
+    if cached_map_html == 0 :
+        map_html_str = get_map_data()  # 최초 1회만 실행
+        cached_map_html = 1
     return render_template('index.html', map_html=map_html_str)
 
 
