@@ -1,0 +1,204 @@
+TRAIN DATA 에 있는 기상 컬럼
+기온, 강수량, 풍속, 풍향, 습도
+
+[사용자]
+  ↓ HTML 버튼 클릭
+[Flask 웹 서버 (Python)]
+  ↓
+  1. 기상청 API로 실시간 날씨 데이터 수집
+  2. 건물 정보 + 날씨 데이터로 test 생성
+  3. 학습된 모델로 예측 수행
+  ↓
+[결과 → HTML로 보여줌]
+
+
+------------------------------------------------
+✅ 간단한 예시 코드 (Flask 기준)
+*********** 1. app.py (Flask 서버)
+python
+복사
+편집
+from flask import Flask, render_template, request
+import requests
+import joblib
+import pandas as pd
+
+app = Flask(__name__)
+
+# 모델 불러오기
+model = joblib.load('fire_predict_model.pkl')  # 사전에 학습된 모델
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    # 기상청 API 호출 (간단화 예시)
+    tmprt, humidity, rain, ws, wd = get_weather_data()
+
+    # 예측용 데이터 생성 (예: 사용자 입력 + 실시간 날씨)
+    test_row = {
+        'buld_strctr': 2,
+        'spt_lfdau_dist': 0.83,
+        'bottom_area': 120.5,
+        'TIME_UNIT_TMPRT': tmprt,
+        'TIME_UNIT_HUMIDITY': humidity,
+        'TIME_UNIT_RAINQTY': rain,
+        'TIME_UNIT_WS': ws,
+        'TIME_UNIT_WD': wd
+    }
+    X_test = pd.DataFrame([test_row])
+
+    # 예측
+    pred = model.predict(X_test)[0]
+    return render_template('result.html', prediction=pred)
+
+def get_weather_data():
+    # 실시간 날씨 API 호출해서 값 반환 (T1H, REH 등)
+    # 여기는 기상청 API 호출 코드 들어감
+    return 28.5, 55, 0.0, 3.2, 200  # 예시 데이터
+
+if __name__ == '__main__':
+    app.run(debug=True)
+--------------------------------------------------------------------
+**********2. templates/index.html
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>화재 예측</title>
+</head>
+<body>
+    <h2>건물 화재 예측 (실시간 날씨 기반)</h2>
+    <form method="POST" action="/predict">
+        <button type="submit">예측 실행</button>
+    </form>
+</body>
+</html>
+---------------------------------------------------------------
+ ************3. templates/result.html
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>예측 결과</title>
+</head>
+<body>
+    <h3>예측 결과: {{ prediction }}</h3>
+    <a href="/">처음으로</a>
+</body>
+</html>
+
+--------------------------------------------------------------
+✅ 전체 구성 요약
+HTML에서 지도를 표시 (Leaflet.js or Kakao Map 등)
+
+사용자가 건물 위치 클릭 → 위도, 경도 추출
+
+JS로 위경도를 Flask 서버에 전달 (fetch or form)
+
+Flask가 기상청 API 호출 (격자 변환 + 날씨 수집)
+
+해당 위치의 날씨를 기반으로 예측 실행
+
+결과를 HTML로 반환
+
+-----------------------------------------------
+
+✅ 핵심 구성 예시
+🔹 1. index.html (지도 포함)
+html
+복사
+편집
+<!DOCTYPE html>
+<html>
+<head>
+  <title>건물 위치 선택</title>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+</head>
+<body>
+  <h3>건물 위치를 지도에서 클릭하세요</h3>
+  <div id="map" style="height: 400px;"></div>
+
+  <form method="POST" action="/predict">
+    <input type="hidden" name="lat" id="lat">
+    <input type="hidden" name="lon" id="lon">
+    <button type="submit">예측 실행</button>
+  </form>
+
+  <script>
+    var map = L.map('map').setView([37.4979, 127.0276], 13);  // 서울 강남 기준
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    map.on('click', function(e) {
+      document.getElementById('lat').value = e.latlng.lat;
+      document.getElementById('lon').value = e.latlng.lng;
+      alert(`위치 선택됨: ${e.latlng.lat}, ${e.latlng.lng}`);
+    });
+  </script>
+</body>
+</html>
+
+-------------------------------------------------------------
+
+ 2. app.py (Flask 서버)
+python
+복사
+편집
+from flask import Flask, render_template, request
+import joblib
+import pandas as pd
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    lat = float(request.form['lat'])
+    lon = float(request.form['lon'])
+
+    # 1. 위경도 → 기상청 격자 변환
+    nx, ny = convert_to_grid(lat, lon)
+
+    # 2. 기상청 API 호출
+    tmprt, humid, rain, ws, wd = get_weather(nx, ny)
+
+    # 3. 예측용 데이터 생성
+    test_row = {
+        'buld_strctr': 2,
+        'spt_lfdau_dist': 0.83,
+        'bottom_area': 120.5,
+        'TIME_UNIT_TMPRT': tmprt,
+        'TIME_UNIT_HUMIDITY': humid,
+        'TIME_UNIT_RAINQTY': rain,
+        'TIME_UNIT_WS': ws,
+        'TIME_UNIT_WD': wd
+    }
+    X_test = pd.DataFrame([test_row])
+
+    model = joblib.load('fire_model.pkl')
+    pred = model.predict(X_test)[0]
+
+    return f"예측 결과: {pred}"
+
+# 위경도 → 기상청 격자 변환 함수
+def convert_to_grid(lat, lon):
+    import math
+    # ... 기상청 공식 변환 알고리즘 (생략 가능 — 필요 시 제공 가능)
+    return 60, 127  # 예시: 서울 강남 격자
+
+def get_weather(nx, ny):
+    # ... 기상청 API 요청 & parsing
+    return 27.3, 60, 0.0, 2.1, 180  # 예시 데이터
+
+if __name__ == '__main__':
+    app.run(debug=True)
