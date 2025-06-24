@@ -74,6 +74,14 @@
       color: #ffffff;
       font-weight: 500;
     }
+      #drown-score-text {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 2rem;        /* 필요에 따라 조정 */
+      font-size: 2rem;   /* 원하시는 크기로 변경 */
+      font-weight: bold;
+    }
     </style>
 </head>
 
@@ -139,6 +147,15 @@
 
           // 2) 날씨 불러오기
           async function loadWeather(){
+
+              const iconEl     = document.getElementById('weather-icon');
+              const tempEl     = document.getElementById('weather-temp');
+              const descEl     = document.getElementById('weather-desc');
+              const humiEl     = document.getElementById('weather-humidity');
+              const wsEl       = document.getElementById('weather-ws');
+
+              iconEl.innerHTML = `<i class="fas fa-spinner fa-pulse"></i>`;
+              descEl.textContent = '불러오는 중...';
             try {
               const res = await fetch('/api/weather');
               if(!res.ok) throw new Error('날씨 정보를 가져올 수 없습니다');
@@ -167,13 +184,13 @@
                 // DB03 → 흰색, DB04 → 회색, 나머지 → 기본
                 let colorClass = '';
                 if (sky_code === 'DB03') colorClass = 'white';
-                else if (sky_code === 'DB04' && prep === 0) colorClass = 'grey';
+                else if (sky_code === 'DB04') colorClass = 'grey';
 
-              document.getElementById('weather-icon').innerHTML    = `<i class="fas fa-${iconClass}"></i>`;
-              document.getElementById('weather-temp').textContent  = `${temp.toFixed(1)}°C`;
-              document.getElementById('weather-desc').textContent  = wf;
-              document.getElementById('weather-humidity').textContent = humidity;
-              document.getElementById('weather-ws').textContent    = ws.toFixed(1);
+                iconEl.innerHTML = `<i class="fas fa-${iconClass} fa-2x ${colorClass}"></i>`;
+                tempEl.textContent = `${temp.toFixed(1)}°C`;
+                descEl.textContent = wf;
+                humiEl.textContent = humidity;
+                wsEl.textContent   = ws.toFixed(1);
             } catch(e){
               console.error(e);
             }
@@ -463,24 +480,17 @@
                                             </div>
                                             <div class="row no-gutters align-items-center">
                                                 <div class="col-auto">
-                                                  <div id="drown-score-text" class="h5 mb-0 mr-3 font-weight-bold text-gray-800">
-                                                    0점
+                                                  <div id="drown-rate-text" class="h5 mb-0 font-weight-bold text-gray-800">
+                                                    평가 등급 :
                                                   </div>
                                                 </div>
-                                                <div class="col">
-                                                  <div class="progress progress-sm mr-2">
-                                                    <div
-                                                      id="drown-score-bar"
-                                                      class="progress-bar bg-primary"
-                                                      role="progressbar"
-                                                      style="width: 0%"
-                                                      aria-valuenow="0"
-                                                      aria-valuemin="0"
-                                                      aria-valuemax="100"
-                                                    ></div>
-                                                  </div>
+                                                <div class="col text-center">
+                                                    <div id="drown-score-text"
+                                                         class="h5 mb-0 font-weight-bold">
+                                                        --
+                                                    </div>
                                                 </div>
-                                              </div>
+                                            </div>
                                             </div>
                                         <div class="col-auto">
                                             <i class="fas fa-cloud-showers-heavy fa-2x text-primary"></i>
@@ -750,6 +760,17 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 
     <script>
+      // 점수(0,1,2)를 “안전/경고/위험” 등급과 색상으로 변환
+      function getDrownStatus(score) {
+        switch (Number(score)) {
+          case 0: return { text: '안전', className: 'text-success'  };
+          case 1: return { text: '경고', className: 'text-warning' };
+          case 2: return { text: '위험', className: 'text-danger'    };
+          default: return { text: '--',   className: 'text-secondary'   };
+        }
+      }
+    </script>
+    <script>
       document.addEventListener('DOMContentLoaded', function() {
         // ① Chart.js 플러그인 등록
         Chart.register(ChartDataLabels);
@@ -864,6 +885,7 @@
 
                       const scoreDrownEl = document.getElementById('drown-score-text');
                       scoreDrownEl.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div>';
+                      scoreDrownEl.style.color = '';
 
                       const scoreTornadoEl = document.getElementById('tornado-score-text');
                       scoreTornadoEl.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div>';
@@ -886,7 +908,7 @@
                               const r = data.raw;      // { tornado, drown, earthquake, fire }
                               const t = data.total;   // { tornado, drown, earthquake, fire }
 
-                              ['tornado','drown','earthquake','fire'].forEach(key => {
+                              ['tornado','earthquake','fire'].forEach(key => {
                                 const rawVal = Number(r[key]) || 0;
                                 const textEl = document.getElementById(`${key}-score-text`);
                                 const barEl  = document.getElementById(`${key}-score-bar`);
@@ -895,12 +917,20 @@
                                 barEl.style.width = `${rawVal.toFixed(2)}%`;
                                 barEl.setAttribute('aria-valuenow', rawVal.toFixed(2));
                               });
-
+                              // 2) 'drown'만 평가 등급 텍스트 처리
+                              const drownVal = Number(r.drown) || 0;
+                              const status   = getDrownStatus(drownVal);
+                              const drownE   = document.getElementById('drown-score-text');
+                              // 1) 이전에 붙은 색 관련 클래스 제거
+                              drownE.classList.remove('text-success','text-warning','text-danger','text-secondary');
+                              // 2) 새로운 클래스 추가
+                              drownE.classList.add(status.className);
+                              // 3) 텍스트 갱신
+                              drownE.textContent = status.text;
 
                               // 3) total 점수 → bar 차트에 반영
                               const barData = [
                                 Number(r.tornado)    || 0,
-                                Number(r.drown)      || 0,
                                 Number(r.earthquake) || 0,
                                 Number(r.fire)       || 0
                               ];
@@ -951,6 +981,8 @@
                 document.getElementById('resetMap')
                     .addEventListener('click', (e) => {
                         e.preventDefault();               // href="#" 기본 동작 막기
+
+                        // 1) 맵 중심 & 줌 초기화
                         map.setCenter(initialCenter);
                         map.setZoom(initialZoom);
 
@@ -959,27 +991,37 @@
                             selectedMarker.setIcon(selectedMarker.defaultIcon);
                             selectedMarker = null;
                         }
-                        // 3) 정보 패널과 점수 초기화
+                        // 3) 정보 패널 초기화
                         document.getElementById('building-info').innerHTML = '';
                         document.getElementById('accident-history').innerHTML = '';
 
-                        ['tornado','drown','earthquake','fire'].forEach(key => {
+                        // 4) 숫자+바 리셋 (태풍·지진·산불)
+                        ['tornado','earthquake','fire'].forEach(key => {
                             const textEl = document.getElementById(`${key}-score-text`);
                             const barEl  = document.getElementById(`${key}-score-bar`);
-
-                            textEl.textContent = '';
+                            textEl.textContent = '0점';
                             barEl.style.width = '0%';
                             barEl.setAttribute('aria-valuenow', 0);
                         });
 
-                        // 5) ★ 추가된 부분: search-input 내부 내용도 비우기
+                        // 5) 홍수/침수 등급 리셋
+                        const drownEl = document.getElementById('drown-score-text');
+                        // • 기존 색상 클래스 모두 제거
+                        drownEl.classList.remove('text-success','text-warning','text-danger','text-secondary');
+                        // • 기본 회색 등급으로 표시
+                        drownEl.classList.add('text-secondary');
+                        // • 텍스트를 “--”로 초기화
+                        drownEl.textContent = '--';
+
+                        // 6) bar 차트도 0으로 초기화
+                        window.riskBarChart.data.datasets[0].data = [0, 0, 0, 0];
+                        window.riskBarChart.update();
+
+                        // 7) 검색창 내부 내용도 비우기
                         const searchInput = document.getElementById('search-input');
                         if (searchInput) {
                           searchInput.value = '';  // 검색 결과나 안내 텍스트 모두 제거
                         }
-                        // 6) bar 차트도 0으로 초기화
-                        window.riskBarChart.data.datasets[0].data = [0, 0, 0, 0];
-                        window.riskBarChart.update();
                     });
             });
     }

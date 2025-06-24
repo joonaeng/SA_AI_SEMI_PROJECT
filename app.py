@@ -12,6 +12,7 @@ import pandas as pd
 import joblib
 import numpy as np
 from pathlib import Path
+from scipy.stats import percentileofscore
 from datetime import datetime
 from requests.exceptions import Timeout
 import pickle
@@ -49,6 +50,7 @@ def refresh_cache_if_needed():
     if cur != last_mid_mtime:
         mid_cache = pd.read_csv(MID_CACHE_PATH, usecols=mid_cache.columns)
         last_mid_mtime = cur
+
 
 # --- 1. 모델 로드 ---
 try:
@@ -148,7 +150,19 @@ except Exception as e:
     print(f"[오류] 데이터 로드 또는 전처리 중 오류 발생: {e}")
     gangnam_fire_processed = None
     gangnam_drown_processed = None
+# --- 앱 시작 시 (전처리 이후) ---
+LAMBDA_VAL = 0.2750
 
+# 전체 검증 분포 생성
+validation_boxcox = [
+    np.mean([m.predict(gangnam_fire_processed.iloc[[i]][FIRE_MODEL_FEATURES])[0]
+             for m in fire_models.values()])
+    for i in range(len(gangnam_fire_processed))
+]
+validation_preds = [
+    (pb * LAMBDA_VAL + 1) ** (1 / LAMBDA_VAL)
+    for pb in validation_boxcox
+]
 # 메인페이지 라우트
 @app.route('/')
 def main_app():
@@ -205,16 +219,19 @@ def predict():
 
         # Box-Cox 역변환 수행 (Notebook 156, 163셀 참조)
         # 람다(lambda) 값은 학습 때 사용된 값과 동일해야 합니다.
-        LAMBDA_VAL = 0.2728  # Notebook 163셀에서 확인된 값
-        y_pred_original = np.exp(final_prediction_boxcox * LAMBDA_VAL) - 1 if LAMBDA_VAL == 0 else (
-           final_prediction_boxcox * LAMBDA_VAL + 1) ** (
-               1 / LAMBDA_VAL)
+        y_pred_original = (final_prediction_boxcox * LAMBDA_VAL + 1) ** (1 / LAMBDA_VAL)
 
-        # Z-Score 변환 (Notebook 163셀) - 검증세트의 통계량을 써야하나, 여기선 간략화
-        # 실제 운영시에는 학습 데이터 전체의 평균/표준편차를 저장해두고 사용해야 합니다.
-        # 여기서는 설명을 위해 임시값으로 대체합니다.
-        fire_score_raw = np.clip(50 + 10 * ((y_pred_original - 0.15) / 0.2), 0, 100)
+        def scale_percentile_to_100(pred, reference_distribution):
+            score = percentileofscore(reference_distribution, pred, kind='rank')
+            print(f"score : {score}")
+            return score
 
+        fire_score_raw = scale_percentile_to_100(
+            y_pred_original,
+            validation_preds  # ← 노트북 방식 분포
+        )
+
+        print(f"fire_score_raw : {fire_score_raw}")
         try:
             pos = gangnam_drown_raw.index[gangnam_drown_raw['index'] == building_index].tolist()[0]
             drown_input = gangnam_drown_processed.iloc[[pos]].copy()
