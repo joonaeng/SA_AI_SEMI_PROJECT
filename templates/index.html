@@ -105,12 +105,12 @@
               <!-- 현재 날씨 위젯 -->
               <li class="nav-item text-center py-4">
                 <div id="weather-widget">
-                  <div id="weather-icon" class="mb-2" style="font-size:2.5rem; color:#f8f9fa;">⏳</div>
+                    <div id="weather-icon" class="mb-2" style="font-size:2.5rem;">
+                        <!-- 초기 로딩 스피너 -->
+                        <i class="fas fa-spinner fa-pulse"></i>
+                    </div>
                   <div id="weather-temp">--.-°C</div>
                   <div id="weather-desc">불러오는 중...</div>
-                  <div id="weather-icon" class="mb-2" style="font-size:2.5rem; color: #f8f9fa;"></div>
-                  <div id="weather-temp" class="h4 mb-1"></div>
-                  <div id="weather-desc" class="small mb-2"></div>
                   <div class="small mb-1">습도: <strong id="weather-humidity"></strong>%</div>
                   <div class="small">풍속: <strong id="weather-ws"></strong> m/s</div>
                 </div>
@@ -142,11 +142,36 @@
             try {
               const res = await fetch('/api/weather');
               if(!res.ok) throw new Error('날씨 정보를 가져올 수 없습니다');
-              const { temp, desc, icon, humidity, ws } = await res.json();
+              const { temp, wf, sky_code , humidity, ws, prep} = await res.json();
 
-              document.getElementById('weather-icon').innerHTML    = `<i class="fas fa-${icon}"></i>`;
+                // 1) 기본 아이콘 결정
+                let iconClass;
+                switch (sky_code) {
+                  case 'DB01': iconClass = 'sun';       break;
+                  case 'DB02': iconClass = 'cloud-sun'; break;
+                  case 'DB03': iconClass = 'cloud';     break; // 흰 구름
+                  case 'DB04': iconClass = 'cloud';     break; // 회색 구름
+                  default:     iconClass = 'cloud';     break;
+                }
+
+                // 2) DB04 + prep > 0 이면 강수 아이콘으로 덮어쓰기
+                if (sky_code === 'DB04' && prep > 0) {
+                  switch (prep) {
+                    case 1: iconClass = 'cloud-rain';        break;
+                    case 2: iconClass = 'cloud-rain-snow';   break;
+                    case 3: iconClass = 'cloud-snow';        break;
+                    case 4: iconClass = 'cloud-showers-heavy'; break;
+                  }
+                }
+                // 3) 색상 클래스 결정
+                // DB03 → 흰색, DB04 → 회색, 나머지 → 기본
+                let colorClass = '';
+                if (sky_code === 'DB03') colorClass = 'white';
+                else if (sky_code === 'DB04' && prep === 0) colorClass = 'grey';
+
+              document.getElementById('weather-icon').innerHTML    = `<i class="fas fa-${iconClass}"></i>`;
               document.getElementById('weather-temp').textContent  = `${temp.toFixed(1)}°C`;
-              document.getElementById('weather-desc').textContent  = desc;
+              document.getElementById('weather-desc').textContent  = wf;
               document.getElementById('weather-humidity').textContent = humidity;
               document.getElementById('weather-ws').textContent    = ws.toFixed(1);
             } catch(e){
@@ -396,7 +421,7 @@
                                             <div class="row no-gutters align-items-center">
                                                 <div class="col-auto">
                                                   <div id="tornado-score-text" class="h5 mb-0 mr-3 font-weight-bold text-gray-800">
-                                                    0%
+                                                    0점
                                                   </div>
                                                 </div>
                                                 <div class="col">
@@ -439,7 +464,7 @@
                                             <div class="row no-gutters align-items-center">
                                                 <div class="col-auto">
                                                   <div id="drown-score-text" class="h5 mb-0 mr-3 font-weight-bold text-gray-800">
-                                                    0%
+                                                    0점
                                                   </div>
                                                 </div>
                                                 <div class="col">
@@ -477,7 +502,7 @@
                                             <div class="row no-gutters align-items-center">
                                                 <div class="col-auto">
                                                   <div id="earthquake-score-text" class="h5 mb-0 mr-3 font-weight-bold text-gray-800">
-                                                    0%
+                                                    0점
                                                   </div>
                                                 </div>
                                                 <div class="col">
@@ -520,7 +545,7 @@
                                             <div class="row no-gutters align-items-center">
                                                 <div class="col-auto">
                                                   <div id="fire-score-text" class="h5 mb-0 mr-3 font-weight-bold text-gray-800">
-                                                    0%
+                                                    0점
                                                   </div>
                                                 </div>
                                                 <div class="col">
@@ -583,7 +608,7 @@
                             </div>
                         </div>
 
-                        <!-- Pie Chart -->
+                        <!-- risk Bar Chart -->
                         <div class="col-xl-4 col-lg-5">
                             <div class="card shadow mb-4" style="min-height: 500px;">
                                 <!-- Card Header - Dropdown -->
@@ -607,8 +632,8 @@
                                 </div>
                                 <!-- Card Body -->
                                 <div class="card-body">
-                                    <div class="chart-pie pt-4 pb-2 d-flex justify-content-center">
-                                        <canvas id="myPieChart" style="max-width: 300px; width: 100%"></canvas>
+                                    <div class="chart-bar pt-4 pb-2 d-flex justify-content-center">
+                                        <canvas id="riskBarChart" style="max-width: 300px; width: 100%"></canvas>
                                     </div>
                                     <div class="mt-4 text-center small">
                                         <span class="mr-2">
@@ -725,51 +750,45 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 
     <script>
-      // 문서 로드 완료 시 한 번만 실행
       document.addEventListener('DOMContentLoaded', function() {
-        // 전역 변수 pieChart 선언
+        // ① Chart.js 플러그인 등록
         Chart.register(ChartDataLabels);
 
-        window.pieChart = new Chart(
-            document.getElementById('myPieChart').getContext('2d'),
-            {
-              type: 'pie',
-              data: {
-                labels: ['태풍/강풍','홍수/침수','지진/붕괴','산불/화재'],
-                datasets: [{
-                  data: [0,0,0,0],             // 나중에 fetch → update
-                  backgroundColor: [
-                    '#17a2b8',  // info
-                    '#007bff',  // primary
-                    '#ffc107',  // warning
-                    '#dc3545'   // danger
-                  ],
-                  hoverOffset: 8
-                }]
-              },
-              options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  // ② 퍼센트 레이블 찍어주는 설정
-                  datalabels: {
-                    color: '#fff',               // 레이블 글자색
-                    formatter: (value, ctx) => {
-                      const sum = ctx.chart._metasets[0].total;
-                      const p = (value/sum*100).toFixed(1) + '%';
-                      return p;
-                    },
-                    font: { weight: 'bold', size: 14 }
-                  },
-                  // ③ 기존 legend는 꺼두거나 hidden 처리
-                  legend: { display: false }
-                }
-              }
-            }
-          );
+       // Bar 차트 생성
+       const ctx = document.getElementById('riskBarChart').getContext('2d');
+       window.riskBarChart = new Chart(ctx, {
+         type: 'bar',
+         data: {
+           labels: ['태풍/강풍','홍수/침수','지진/붕괴','산불/화재'],
+           datasets: [{
+             label: '위험 점수',
+             data: [0, 0, 0, 0],
+             // backgroundColor와 borderColor는 CSS로 조정하거나 기본값 사용
+             borderWidth: 1
+           }]
+         },
+         options: {
+           responsive: true,
+           maintainAspectRatio: false,
+           scales: {
+             y: {
+               beginAtZero: true,
+               max: 100
+             }
+           },
+           plugins: {
+             datalabels: {
+               anchor: 'end',
+               align: 'end',
+               formatter: (value) => value.toFixed(2) + '점',
+               font: { weight: 'bold', size: 12 }
+             },
+             legend: { display: false }
+           }
+         }
+       });
         });
     </script>
-
     <script>
     function initMap() {
         initialCenter = { lat: 37.4968, lng:  127.0628 };
@@ -878,15 +897,15 @@
                               });
 
 
-                              // 3) total 점수 → Pie 차트에 반영
-                              const pieData = [
-                                Number(t.tornado)    || 0,
-                                Number(t.drown)      || 0,
-                                Number(t.earthquake) || 0,
-                                Number(t.fire)       || 0
+                              // 3) total 점수 → bar 차트에 반영
+                              const barData = [
+                                Number(r.tornado)    || 0,
+                                Number(r.drown)      || 0,
+                                Number(r.earthquake) || 0,
+                                Number(r.fire)       || 0
                               ];
-                              window.pieChart.data.datasets[0].data = pieData;
-                              window.pieChart.update();
+                              window.riskBarChart.data.datasets[0].data = barData;
+                              window.riskBarChart.update();
                           }
                         })
                         .catch(error => {
@@ -958,9 +977,9 @@
                         if (searchInput) {
                           searchInput.value = '';  // 검색 결과나 안내 텍스트 모두 제거
                         }
-                        // 6) Pie 차트도 0으로 초기화
-                        window.pieChart.data.datasets[0].data = [0, 0, 0, 0];
-                        window.pieChart.update();
+                        // 6) bar 차트도 0으로 초기화
+                        window.riskBarChart.data.datasets[0].data = [0, 0, 0, 0];
+                        window.riskBarChart.update();
                     });
             });
     }

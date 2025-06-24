@@ -1,60 +1,87 @@
 import requests
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 CACHE_FILE = '/mnt/c/AIDC/SA_AI_SEMI_PROJECT/data/cache_short_term_weather.csv'
+API_KEY = 'HbpfhxhxR9O6X4cYcUfT0Q'
+BASE_URL = 'https://apihub.kma.go.kr/api/typ01/url/kma_sfctm2.php'
 
-def fetch_weather_data(tm, API_KEY):
-    url = f'https://apihub.kma.go.kr/api/typ01/url/kma_sfctm2.php?tm={tm}&stn=108&authKey={API_KEY}'
+def fetch_latest():
+    """
+    tm 파라미터 없이 요청해서 기상청이 제공하는 '가장 최신' 관측값을 내려받습니다.
+    """
+    url = f"{BASE_URL}?stn=108&authKey={API_KEY}"
     res = requests.get(url, timeout=5)
     res.raise_for_status()
 
-    lines = res.text.splitlines()
-    line = next((l for l in lines if l and not l.startswith('#')), None)
-    if not line:
-        return None
+    lines = [l for l in res.text.splitlines() if l and not l.startswith('#')]
+    if not lines:
+        raise ValueError("데이터가 없습니다")
+    tok = lines[0].split()
 
-    tok = line.split()
-    weather_data = {
+    return {
         'datetime': datetime.strptime(tok[0], '%Y%m%d%H%M').strftime('%Y-%m-%d %H:%M:%S'),
-        'temp': float(tok[11]),
-        'ws': float(tok[3]),
-        'wd': float(tok[2]),
-        'humidity': float(tok[14])
+        'temp':      float(tok[11]),
+        'ws':        float(tok[3]),
+        'wd':        float(tok[2]),
+        'humidity':  float(tok[14])
     }
 
-    return weather_data
+def fetch_by_tm(tm):
+    """
+    tm 파라미터로 특정 시각 관측값을 요청합니다.
+    tm 예시: '202506241300'
+    """
+    url = f"{BASE_URL}?tm={tm}&stn=108&authKey={API_KEY}"
+    res = requests.get(url, timeout=5)
+    res.raise_for_status()
+
+    lines = [l for l in res.text.splitlines() if l and not l.startswith('#')]
+    if not lines:
+        return None
+    tok = lines[0].split()
+
+    return {
+        'datetime': datetime.strptime(tok[0], '%Y%m%d%H%M').strftime('%Y-%m-%d %H:%M:%S'),
+        'temp':      float(tok[11]),
+        'ws':        float(tok[3]),
+        'wd':        float(tok[2]),
+        'humidity':  float(tok[14])
+    }
 
 def update_weather_with_fallback():
-    API_KEY = 'HbpfhxhxR9O6X4cYcUfT0Q'
-    now = datetime.now().replace(minute=0, second=0, microsecond=0)
-    attempts = 0
-    max_attempts = 5
+    """
+    1) tm 없이 최신값 요청
+    2) 실패하면 1시간 전 tm으로 한 번 더 시도
+    3) 성공 시 캐시 파일에 기록
+    """
     data = None
+    now = datetime.now()
 
-    while attempts < max_attempts:
-        tm = (now - pd.Timedelta(hours=attempts)).strftime('%Y%m%d%H') + '00'
-        print(f"▶ 데이터 요청 시각: {tm}")
+    # 1) 최신값 시도
+    try:
+        data = fetch_latest()
+        print(f"▶ [SHORT] 최신값 요청 성공:  {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception as e:
+        print(f"▶ [SHORT] 최신 요청 실패: {e}")
+        # 2) 1시간 전 tm으로 한 번 보충 조회
+        tm1 = (datetime.now() - timedelta(hours=1)).strftime('%Y%m%d%H%M')
+        print(f"▶ [SHORT] 1시간 전 시간으로 재시도: {tm1}")
         try:
-            data = fetch_weather_data(tm, API_KEY)
+            data = fetch_by_tm(tm1)
             if data:
-                print(f"▶ 성공적으로 데이터를 가져왔습니다: {data['datetime']}")
-                break
+                print(f"▶ [SHORT] 1시간 전 데이터 성공: {data['datetime']}")
             else:
-                print("▶ 해당 시각 데이터 없음, 이전 시각 데이터 조회 중...")
-        except Exception as e:
-            print(f"▶ 데이터 요청 실패({tm}): {e}")
-        attempts += 1
+                print("▶ [SHORT] 1시간 전에도 데이터 없음 → 캐시 유지")
+                return
+        except Exception as e2:
+            print(f"▶ [SHORT] 1시간 전 재시도 실패: {e2} → 캐시 유지")
+            return
 
-    if data:
-        # 최신 데이터를 캐시에 저장
-        pd.DataFrame([data]).to_csv(CACHE_FILE, index=False)
-        print(f"▶ 캐시 업데이트 성공: {data['datetime']}")
-    else:
-        print("▶ 데이터가 없어서 기존 캐시 유지")
-        if not os.path.exists(CACHE_FILE):
-            print("⚠️ 기존 캐시파일도 없습니다. 확인 필요.")
+    # 3) 캐시에 저장
+    pd.DataFrame([data]).to_csv(CACHE_FILE, index=False)
+    print(f"▶ [SHORT] 캐시 업데이트 완료: {data['datetime']}")
 
 if __name__ == "__main__":
     update_weather_with_fallback()
