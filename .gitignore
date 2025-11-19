@@ -2,7 +2,7 @@
 @"
 # Large files and data
 *.csv
-dataset/
+data/
 data/
 .ipynb_checkpoints/
 
